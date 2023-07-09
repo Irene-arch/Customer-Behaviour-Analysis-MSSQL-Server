@@ -97,7 +97,7 @@ ORDER BY total_purchased DESC;
 
 WITH customer_popularity AS (
     SELECT s.customer_id, m.product_name, COUNT(*) AS purchase_count,
-        ROW_NUMBER() OVER (PARTITION BY s.customer_id ORDER BY COUNT(*) DESC) AS rank
+        DENSE_RANK() OVER (PARTITION BY s.customer_id ORDER BY COUNT(*) DESC) AS rank
     FROM sales s
     INNER JOIN menu m ON s.product_id = m.product_id
     GROUP BY s.customer_id, m.product_name
@@ -174,24 +174,29 @@ GROUP BY s.customer_id;
 
 --11. Recreate the table output using the available data
 
-SELECT s.customer_id, s.order_date, m.product_name, m.price, 
-CASE WHEN s.order_date >= mb.join_date THEN 'Y' 
-ELSE 'N' 
-END as member
-FROM dbo.sales s
+SELECT s.customer_id, s.order_date, m.product_name, m.price,
+CASE WHEN s.order_date >= mb.join_date THEN 'Y'
+ELSE 'N' END AS member
+FROM sales s
 JOIN menu m ON s.product_id = m.product_id
 LEFT JOIN members mb ON s.customer_id = mb.customer_id
 ORDER BY s.customer_id, s.order_date;
 
 --12. Rank all the things:
 
-SELECT *, 
-CASE WHEN member = 'Y' THEN RANK() OVER (PARTITION BY customer_id ORDER BY order_date) END as ranking
-FROM (
-    SELECT s.customer_id, s.order_date, m.product_name, m.price, 
-    CASE WHEN s.order_date >= mb.join_date THEN 'Y' ELSE 'N' END as member
-    FROM dbo.sales s
-    JOIN dbo.menu m ON s.product_id = m.product_id
-    LEFT JOIN dbo.members mb ON s.customer_id = mb.customer_id
-) t
+WITH customers_data AS (
+	SELECT s.customer_id, s.order_date, m.product_name, m.price,
+	CASE
+		WHEN s.order_date < mb.join_date THEN 'N'
+		WHEN s.order_date >= mb.join_date THEN 'Y'
+		ELSE 'N' END AS member
+	FROM sales s
+	LEFT JOIN members mb ON s.customer_id = mb.customer_id
+	JOIN menu m ON s.product_id = m.product_id
+)
+SELECT *,
+CASE WHEN member = 'N' THEN NULL
+ELSE RANK() OVER(PARTITION BY customer_id, member ORDER BY order_date)
+END AS ranking
+FROM customers_data
 ORDER BY customer_id, order_date;
